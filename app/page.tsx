@@ -1,101 +1,208 @@
+"use client";
+
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Textarea } from "@/components/ui/textarea";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import Markdown from "react-markdown";
+import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import Welcome from "@/components/welcome";
+
+type Context = { role: string; content: string }[];
+
+const FormSchema = z.object({
+  content: z.string().nonempty({ message: "Required" }),
+});
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [context, setContext] = useState<Context>([]);
+  const [currentRes, setCurrentRes] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const scrollRef = useRef<null | HTMLDivElement>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  const form = useForm<z.infer<typeof FormSchema>>({
+    resolver: zodResolver(FormSchema),
+    defaultValues: { content: "" },
+  });
+
+  async function onSubmit(data: z.infer<typeof FormSchema>) {
+    setIsLoading(true);
+    form.reset();
+
+    const newContext = [...context];
+    if (currentRes) {
+      newContext.push({ role: "assistant", content: currentRes });
+      setCurrentRes("");
+    }
+    newContext.push({ role: "user", content: data.content.trim() });
+    setContext(newContext);
+
+    try {
+      const response = await fetch("https://apt.drivem.in/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "llama3.2",
+          messages: newContext,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Something went wrong!");
+      }
+      const decoder = new TextDecoder();
+      const reader = response?.body?.getReader();
+
+      // safari doesnt support asyc iterator, using while loop instead
+      while (true) {
+        const { done, value } = await reader!.read();
+        if (done) {
+          // Do something with last chunk of data then exit reader
+          return;
+        }
+        // Otherwise do something here to process current chunk
+        const decodedChunk = decoder.decode(value, { stream: true });
+
+        setCurrentRes(
+          (prev) => prev + JSON.parse(decodedChunk).message.content
+        );
+      }
+      // Exit when done
+    } catch (error) {
+      console.log(error);
+      if (error instanceof Error) {
+        setError(
+          error.message || "Something went wrong. Please try again later."
+        );
+      } else {
+        setError("Something went wrong!");
+      }
+      setIsLoading(false);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (currentRes && !isLoading) {
+      scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [currentRes, isLoading]);
+
+  return (
+    <div className="grid grid-rows-8 h-screen max-w-xl m-auto p-4">
+      <div className="row-span-6 overflow-scroll space-y-4">
+        {context.length === 0 && !isLoading && (
+          <Welcome className="size-1/2 m-auto" />
+        )}
+        {context.map((message) => (
+          <div
+            key={message.content}
+            className={cn(
+              message.role === "assistant"
+                ? "flex flex-row items-start gap-2"
+                : ""
+            )}
           >
+            {message.role === "assistant" && (
+              <Image
+                src="/images/avatar.png"
+                width={25}
+                height={25}
+                alt="assistant"
+                className=""
+              />
+            )}
+            <div>
+              <Markdown
+                className={cn(
+                  message.role === "user"
+                    ? "bg-slate-100 w-2/3 ml-auto p-4 rounded"
+                    : "relative bg-blue-600 p-2 rounded text-white"
+                )}
+              >
+                {message.content}
+              </Markdown>
+            </div>
+          </div>
+        ))}
+        {isLoading && !currentRes && (
+          <div className="flex flex-row gap-4">
+            <Loader2 size={24} className="animate-spin" /> <p>thinking...</p>
+          </div>
+        )}
+        {currentRes && (
+          <div className="flex flex-row items-start gap-2" ref={scrollRef}>
             <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+              src="/images/avatar.png"
+              width={25}
+              height={25}
+              alt="assistant"
+              className=""
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <div>
+              <Markdown className="bg-blue-600 p-2 rounded text-white">
+                {currentRes}
+              </Markdown>
+            </div>
+          </div>
+        )}
+        {error && <p className="text-center text-red-600">{error}</p>}
+      </div>
+      <Form {...form}>
+        <form
+          onSubmit={form.handleSubmit(onSubmit)}
+          className="space-y-6 row-span-2 border-t"
+        >
+          <FormField
+            control={form.control}
+            name="content"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  Start new conversation by sending a message.
+                </FormLabel>
+                <FormControl>
+                  <Textarea
+                    placeholder="Write your thoughts here..."
+                    className="resize-none bg-white"
+                    {...field}
+                  />
+                </FormControl>
+                <FormDescription className="bg-white rounded text-center text-slate-900">
+                  Rate limited to 6 requests per minute. Try again after some
+                  time in case of failure.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <Button
+            type="submit"
+            className="w-full bg-blue-600 hover:bg-blue-600/90 text-lg"
+            disabled={isLoading}
           >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+            Submit
+          </Button>
+        </form>
+      </Form>
     </div>
   );
 }
