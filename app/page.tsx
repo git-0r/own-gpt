@@ -53,7 +53,7 @@ export default function Home() {
     setContext(newContext);
 
     try {
-      const response = await fetch("https://apt.drivem.in/api/chat", {
+      const response = await fetch("http://localhost:11470/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
