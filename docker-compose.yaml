@@ -1,0 +1,9 @@
+---
+
+services:
+  owngpt:
+    container_name: owngpt
+    image: owngpt/client
+    build: .
+    ports:
+      -"3000:3000"
